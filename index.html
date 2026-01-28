@@ -1113,33 +1113,45 @@
         }
 
         // Sync habit to Google Sheets
-        function syncHabitToGoogleSheets(habit, completed) {
-            if (!gameState.googleSheetsConfig.scriptUrl) return;
-            
-            const data = {
-                date: getDayKey(gameState.currentDay),
-                habitName: habit.name,
-                completed: completed,
-                xp: completed ? habit.xp : 0,
-                notes: completed ? `Completed on ${new Date().toLocaleString()}` : `Uncompleted on ${new Date().toLocaleString()}`
-            };
-            
-            fetch(gameState.googleSheetsConfig.scriptUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data),
-                mode: 'no-cors'  // This is needed for Google Apps Script
-            })
-            .then(response => {
-                console.log('Data sent to Google Sheets');
-            })
-            .catch(error => {
-                console.error('Error sending data to Google Sheets:', error);
-            });
+       // Sync habit to Google Sheets
+function syncHabitToGoogleSheets(habit, completed) {
+    if (!gameState.googleSheetsConfig.scriptUrl) return;
+    
+    const data = {
+        date: getDayKey(gameState.currentDay),
+        habitName: habit.name,
+        completed: completed,
+        xp: completed ? habit.xp : 0,
+        notes: completed ? `Completed on ${new Date().toLocaleString()}` : `Uncompleted on ${new Date().toLocaleString()}`
+    };
+    
+    // Use fetch with proper headers and remove no-cors mode
+    fetch(gameState.googleSheetsConfig.scriptUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
         }
-
+        return response.json();
+    })
+    .then(data => {
+        console.log('Data sent to Google Sheets:', data);
+        if (data.status === 'success') {
+            showNotification('Synced to Google Sheets successfully!');
+        } else {
+            showNotification('Error syncing to Google Sheets: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error sending data to Google Sheets:', error);
+        showNotification('Error syncing to Google Sheets: ' + error.message);
+    });
+}
         // Check for level up
         function checkLevelUp() {
             const xpNeeded = gameState.currentLevel * 100;
@@ -1567,50 +1579,74 @@
         }
 
         // Sync to Google Sheets
-        function syncToGoogleSheets() {
-            if (!gameState.googleSheetsConfig.scriptUrl) {
-                showNotification('Please configure Google Sheets in Settings first');
-                switchTab('settings');
-                return;
-            }
-            
-            showNotification('Syncing all data to Google Sheets...');
-            
-            // Get all habit data and send to Google Sheets
-            Object.keys(gameState.weekData).forEach(date => {
-                const dayData = gameState.weekData[date];
-                Object.keys(dayData).forEach(habitId => {
-                    if (dayData[habitId]) {
-                        const habit = gameState.habits.find(h => h.id == habitId);
-                        if (habit) {
-                            const data = {
-                                date: date,
-                                habitName: habit.name,
-                                completed: dayData[habitId],
-                                xp: habit.xp,
-                                notes: `Synced on ${new Date().toLocaleString()}`
-                            };
-                            
-                            fetch(gameState.googleSheetsConfig.scriptUrl, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify(data),
-                                mode: 'no-cors'
-                            })
-                            .catch(error => {
-                                console.error('Error syncing to Google Sheets:', error);
-                            });
-                        }
+        // Sync to Google Sheets
+function syncToGoogleSheets() {
+    if (!gameState.googleSheetsConfig.scriptUrl) {
+        showNotification('Please configure Google Sheets in Settings first');
+        switchTab('settings');
+        return;
+    }
+    
+    showNotification('Syncing all data to Google Sheets...');
+    let syncCount = 0;
+    let errorCount = 0;
+    let totalItems = 0;
+    
+    // Count total items to sync
+    Object.keys(gameState.weekData).forEach(date => {
+        const dayData = gameState.weekData[date];
+        totalItems += Object.keys(dayData).length;
+    });
+    
+    // Get all habit data and send to Google Sheets
+    Object.keys(gameState.weekData).forEach(date => {
+        const dayData = gameState.weekData[date];
+        Object.keys(dayData).forEach(habitId => {
+            const habit = gameState.habits.find(h => h.id == habitId);
+            if (habit) {
+                const data = {
+                    date: date,
+                    habitName: habit.name,
+                    completed: dayData[habitId],
+                    xp: dayData[habitId] ? habit.xp : 0,
+                    notes: `Synced on ${new Date().toLocaleString()}`
+                };
+                
+                fetch(gameState.googleSheetsConfig.scriptUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(result => {
+                    syncCount++;
+                    if (syncCount + errorCount === totalItems) {
+                        showNotification(`Sync complete: ${syncCount} successful, ${errorCount} errors`);
+                    }
+                })
+                .catch(error => {
+                    errorCount++;
+                    console.error('Error syncing to Google Sheets:', error);
+                    if (syncCount + errorCount === totalItems) {
+                        showNotification(`Sync complete: ${syncCount} successful, ${errorCount} errors`);
                     }
                 });
-            });
-            
-            setTimeout(() => {
-                showNotification('Successfully synced to Google Sheets!');
-            }, 2000);
-        }
+            }
+        });
+    });
+    
+    // Handle case when there's no data to sync
+    if (totalItems === 0) {
+        showNotification('No data to sync');
+    }
+}
 
         // Export data
         function exportData() {
